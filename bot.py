@@ -17,7 +17,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 import aiosqlite
-from dotenv import load_dotenv
+from aiohttp import web
 
 # AI (ixtiyoriy)
 try:
@@ -32,15 +32,15 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
-load_dotenv()
-
-# ==================== SOZLAMALAR ====================
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-OWNER_ID = int(os.getenv("OWNER_ID", "0"))
-CHANNEL_ID = int(os.getenv("CHANNEL_ID", "0"))  # Kage Dub kanal ID
+# ==================== SOZLAMALAR (TOKEN VA ID'LAR) ====================
+BOT_TOKEN = "8970235937:AAF4BUG9T7y8oHyJo3dPMNbSfZVDWJY1o2g"
+OWNER_ID = 8318241400
+CHANNEL_ID = -1003852596133  
 CHANNEL_USERNAME = "KageDub"  # @sizningkanal (tugma uchun)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Agar xohlasangiz AI kalitlarini shu yerga yozishingiz mumkin
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 DB_PATH = "kage_bot.db"
 
@@ -205,7 +205,7 @@ async def check_vip_valid(user_id: int) -> bool:
 # ==================== MAJBURIY OBUNA ====================
 async def is_subscribed(user_id: int) -> bool:
     if CHANNEL_ID == 0:
-        return True  # Agar kanal sozlanmagan bo'lsa o'tkazib yuboradi
+        return True
     try:
         member = await bot.get_chat_member(CHANNEL_ID, user_id)
         return member.status in [
@@ -941,11 +941,31 @@ async def stats_process(message: Message):
     )
     await message.answer(text, reply_markup=owner_menu())
 
-# ==================== MAIN ====================
+# ==================== WEBHOOK & MAIN (RENDER FIX) ====================
+async def web_server():
+    app = web.Application()
+    
+    async def handle(request):
+        return web.Response(text="Kage Dub Bot is running!")
+    
+    app.router.add_get("/", handle)
+    return app
+
 async def main():
     await init_db()
-    print("🚀 Kage Dub boti muvaffaqiyatli ishga tushdi!")
+    print("🚀 Kage Dub boti ishga tushmoqda...")
     await bot.delete_webhook(drop_pending_updates=True)
+    
+    # Render port talabini qondirish uchun aiohttp serverini ishga tushiramiz
+    app = await web_server()
+    runner = web.AppRunner(app)
+    await runner.setup()
+    
+    port = int(os.environ.get("PORT", 8080))
+    site = web.TCPSite(runner, "0.0.0.0", port)
+    await site.start()
+    print(f"🌐 Web server {port}-portda ishga tushdi va Render SIGTERM xatosining oldi olindi.")
+    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
