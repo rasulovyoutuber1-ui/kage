@@ -33,7 +33,7 @@ except ImportError:
     GEMINI_AVAILABLE = False
 
 # ==================== SOZLAMALAR (TOKEN VA ID'LAR) ====================
-BOT_TOKEN = "8970235937:AAF4BUG9T7y8oHyJo3dPMNbSfZVDWJY1o2g"
+BOT_TOKEN = "8801789881:AAGNiuolUQt3PbBiQ4QuW9gU9K5L4OktPao"
 OWNER_ID = 8318241400
 CHANNEL_ID = -1003852596133  
 CHANNEL_USERNAME = "KageDub"  # @sizningkanal (tugma uchun)
