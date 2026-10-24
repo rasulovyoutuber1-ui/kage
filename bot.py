@@ -36,7 +36,7 @@ except ImportError:
 BOT_TOKEN = "8801789881:AAGNiuolUQt3PbBiQ4QuW9gU9K5L4OktPao"
 OWNER_ID = 8318241400
 CHANNEL_ID = -1003852596133  
-CHANNEL_USERNAME = "KageDub"  # @sizningkanal (tugma uchun)
+CHANNEL_USERNAME = "kagedub1"  # @sizningkanal (tugma uchun)
 
 # Agar xohlasangiz AI kalitlarini shu yerga yozishingiz mumkin
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
