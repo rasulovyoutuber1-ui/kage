@@ -39,8 +39,6 @@ BOT_TOKEN = os.getenv("8801789881:AAGNiuolUQt3PbBiQ4QuW9gU9K5L4OktPao")
 OWNER_ID = int(os.getenv("8318241400", "0"))
 CHANNEL_ID = int(os.getenv("-1003852596133", "0"))  # Kage Dub kanal ID
 CHANNEL_USERNAME = "kagedub1"  # @sizningkanal (tugma uchun)
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 DB_PATH = "kage_bot.db"
 
