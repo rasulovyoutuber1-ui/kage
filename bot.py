@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -17,7 +17,7 @@ from aiogram.types import (
 )
 from aiogram.utils.keyboard import InlineKeyboardBuilder, ReplyKeyboardBuilder
 import aiosqlite
-from aiohttp import web
+from dotenv import load_dotenv
 
 # AI (ixtiyoriy)
 try:
@@ -32,15 +32,15 @@ try:
 except ImportError:
     GEMINI_AVAILABLE = False
 
-# ==================== SOZLAMALAR (TOKEN VA ID'LAR) ====================
-BOT_TOKEN = "8801789881:AAGNiuolUQt3PbBiQ4QuW9gU9K5L4OktPao"
-OWNER_ID = 8318241400
-CHANNEL_ID = -1003852596133  
-CHANNEL_USERNAME = "kagedub1"  # @sizningkanal (tugma uchun)
+load_dotenv()
 
-# Agar xohlasangiz AI kalitlarini shu yerga yozishingiz mumkin
-OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+# ==================== SOZLAMALAR ====================
+BOT_TOKEN = os.getenv("8801789881:AAGNiuolUQt3PbBiQ4QuW9gU9K5L4OktPao")
+OWNER_ID = int(os.getenv("8318241400", "0"))
+CHANNEL_ID = int(os.getenv("-1003852596133", "0"))  # Kage Dub kanal ID
+CHANNEL_USERNAME = "kagedub1"  # @sizningkanal (tugma uchun)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 
 DB_PATH = "kage_bot.db"
 
@@ -64,15 +64,6 @@ class AnimeAdd(StatesGroup):
     code = State()
     genre = State()
     description = State()
-    link = State()
-    is_vip = State()
-
-class VIPManage(StatesGroup):
-    set_price = State()
-    add_admin_id = State()
-    remove_admin_id = State()
-    add_vip_id = State()
-    remove_vip_id = State()
 
 class SearchStates(StatesGroup):
     waiting_query = State()
@@ -88,8 +79,6 @@ async def init_db():
                 user_id INTEGER PRIMARY KEY,
                 username TEXT,
                 full_name TEXT,
-                is_vip INTEGER DEFAULT 0,
-                vip_until TEXT,
                 joined_at TEXT,
                 is_banned INTEGER DEFAULT 0
             )
@@ -108,8 +97,6 @@ async def init_db():
                 code TEXT UNIQUE,
                 genre TEXT,
                 description TEXT,
-                link TEXT,
-                is_vip INTEGER DEFAULT 0,
                 views INTEGER DEFAULT 0,
                 created_at TEXT
             )
@@ -128,10 +115,6 @@ async def init_db():
                 sent_at TEXT
             )
         """)
-        await db.execute(
-            "INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)",
-            ("vip_price", "50000")
-        )
         await db.commit()
 
 async def get_user(user_id: int) -> Optional[dict]:
@@ -160,52 +143,10 @@ async def is_admin(user_id: int) -> bool:
 async def is_owner(user_id: int) -> bool:
     return user_id == OWNER_ID
 
-async def get_vip_price() -> int:
-    async with aiosqlite.connect(DB_PATH) as db:
-        async with db.execute("SELECT value FROM settings WHERE key = 'vip_price'") as cur:
-            row = await cur.fetchone()
-            return int(row[0]) if row else 50000
-
-async def set_vip_price(price: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "INSERT OR REPLACE INTO settings (key, value) VALUES ('vip_price', ?)",
-            (str(price),)
-        )
-        await db.commit()
-
-async def set_vip(user_id: int, days: int = 30):
-    until = (datetime.now() + timedelta(days=days)).isoformat()
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET is_vip = 1, vip_until = ? WHERE user_id = ?",
-            (until, user_id)
-        )
-        await db.commit()
-
-async def remove_vip(user_id: int):
-    async with aiosqlite.connect(DB_PATH) as db:
-        await db.execute(
-            "UPDATE users SET is_vip = 0, vip_until = NULL WHERE user_id = ?",
-            (user_id,)
-        )
-        await db.commit()
-
-async def check_vip_valid(user_id: int) -> bool:
-    user = await get_user(user_id)
-    if not user or not user["is_vip"]:
-        return False
-    if user["vip_until"]:
-        until = datetime.fromisoformat(user["vip_until"])
-        if until < datetime.now():
-            await remove_vip(user_id)
-            return False
-    return True
-
 # ==================== MAJBURIY OBUNA ====================
 async def is_subscribed(user_id: int) -> bool:
     if CHANNEL_ID == 0:
-        return True
+        return True  # Agar kanal sozlanmagan bo'lsa o'tkazib yuboradi
     try:
         member = await bot.get_chat_member(CHANNEL_ID, user_id)
         return member.status in [
@@ -225,13 +166,12 @@ def subscribe_keyboard() -> InlineKeyboardMarkup:
     return builder.as_markup()
 
 # ==================== KLAVIATURALAR ====================
-def main_menu(is_admin_user: bool = False, is_vip: bool = False) -> ReplyKeyboardMarkup:
+def main_menu(is_admin_user: bool = False) -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="🔍 Anime qidirish")
     builder.button(text="🎲 Tasodifiy anime")
     builder.button(text="🔥 Top animelar")
     builder.button(text="🆕 Eng yangi")
-    builder.button(text="💎 VIP bo‘lim")
     builder.button(text="🤖 AI Rejim")
     if is_admin_user:
         builder.button(text="🛠 Admin panel")
@@ -254,9 +194,6 @@ def owner_menu() -> ReplyKeyboardMarkup:
     builder = ReplyKeyboardBuilder()
     builder.button(text="➕ Admin qo‘shish")
     builder.button(text="➖ Admin olib tashlash")
-    builder.button(text="💰 VIP narxini o‘zgartirish")
-    builder.button(text="💎 VIP foydalanuvchi qo‘shish")
-    builder.button(text="❌ VIP olib tashlash")
     builder.button(text="📊 Statistika")
     builder.button(text="◀️ Orqaga")
     builder.adjust(2)
@@ -284,12 +221,10 @@ async def cmd_start(message: Message, state: FSMContext):
         return
 
     is_adm = await is_admin(user.id)
-    is_v = await check_vip_valid(user.id)
     await message.answer(
         f"<b>🎬 Kage Dub Botga xush kelibsiz!</b>\n\n"
-        f"Salom, {user.full_name}!\n"
-        f"{'💎 VIP foydalanuvchi' if is_v else 'Oddiy foydalanuvchi'}",
-        reply_markup=main_menu(is_adm, is_v)
+        f"Salom, {user.full_name}!",
+        reply_markup=main_menu(is_adm)
     )
 
 @router.callback_query(F.data == "check_sub")
@@ -297,10 +232,9 @@ async def check_subscription(callback: CallbackQuery, state: FSMContext):
     if await is_subscribed(callback.from_user.id):
         await callback.message.delete()
         is_adm = await is_admin(callback.from_user.id)
-        is_v = await check_vip_valid(callback.from_user.id)
         await callback.message.answer(
             "✅ Obuna tasdiqlandi! Endi botdan to‘liq foydalanishingiz mumkin.",
-            reply_markup=main_menu(is_adm, is_v)
+            reply_markup=main_menu(is_adm)
         )
     else:
         await callback.answer("❌ Hali obuna bo‘lmadingiz!", show_alert=True)
@@ -351,8 +285,7 @@ async def search_process(message: Message, state: FSMContext):
 
     text = f"<b>🔍 Qidiruv natijalari:</b> ({len(results)} ta)\n\n"
     for a in results:
-        vip_mark = "💎 " if a["is_vip"] else ""
-        text += f"{vip_mark}<b>{a['name']}</b> [{a['code']}]\n"
+        text += f"<b>{a['name']}</b> [{a['code']}]\n"
         text += f"   Janr: {a['genre'] or 'Noma’lum'} | Ko‘rishlar: {a['views']}\n\n"
 
     await message.answer(text)
@@ -377,26 +310,26 @@ async def show_anime(callback: CallbackQuery):
         await callback.answer("Anime topilmadi", show_alert=True)
         return
 
-    is_v = await check_vip_valid(callback.from_user.id)
-    if anime["is_vip"] and not is_v and not await is_admin(callback.from_user.id):
-        await callback.answer("💎 Bu anime faqat VIP foydalanuvchilar uchun!", show_alert=True)
-        return
-
     text = (
         f"<b>🎬 {anime['name']}</b>\n"
         f"Kod: <code>{anime['code']}</code>\n"
         f"Janr: {anime['genre'] or '—'}\n"
         f"Ko‘rishlar: {anime['views'] + 1}\n\n"
-        f"{anime['description'] or ''}\n\n"
+        f"{anime['description'] or ''}\n"
     )
     builder = InlineKeyboardBuilder()
-    if anime["link"]:
-        builder.button(text="📺 Ko‘rish", url=anime["link"])
-        builder.button(text="📥 Yuklab olish", url=anime["link"])
     builder.button(text="◀️ Yopish", callback_data="close")
-    builder.adjust(2)
+    builder.adjust(1)
 
     await callback.message.answer(text, reply_markup=builder.as_markup())
+    await callback.answer()
+
+@router.callback_query(F.data == "close")
+async def close_callback(callback: CallbackQuery):
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
     await callback.answer()
 
 @router.message(F.text == "🎲 Tasodifiy anime")
@@ -460,42 +393,6 @@ async def newest_animes(message: Message):
     text = "<b>🆕 Eng yangi qo‘shilgan animelar:</b>\n\n"
     for a in results:
         text += f"• <b>{a['name']}</b> [{a['code']}]\n"
-    await message.answer(text)
-
-# ==================== VIP BO‘LIM ====================
-@router.message(F.text == "💎 VIP bo‘lim")
-async def vip_section(message: Message):
-    if not await require_sub(message):
-        return
-    price = await get_vip_price()
-    is_v = await check_vip_valid(message.from_user.id)
-    user = await get_user(message.from_user.id)
-
-    if is_v:
-        until = user["vip_until"][:10] if user["vip_until"] else "—"
-        text = (
-            f"<b>💎 Siz VIP foydalanuvchisiz!</b>\n\n"
-            f"Amal qilish muddati: <code>{until}</code>\n\n"
-            f"VIP afzalliklari:\n"
-            f"• Yopiq/maxsus animelar\n"
-            f"• Oldindan yangi qismlar\n"
-            f"• AI cheksiz foydalanish"
-        )
-    else:
-        text = (
-            f"<b>💎 VIP tarif</b>\n\n"
-            f"Narxi: <b>{price:,} so‘m</b> / 30 kun\n\n"
-            f"Nimalar bor:\n"
-            f"• Maxsus va yopiq animelar\n"
-            f"• Yangi qismlarga erta kirish\n"
-            f"• AI rejimida ustuvorlik\n\n"
-            f"To‘lov uchun admin bilan bog‘laning."
-        )
-        builder = InlineKeyboardBuilder()
-        builder.button(text="📞 Admin bilan bog‘lanish", url=f"https://t.me/{CHANNEL_USERNAME}")
-        await message.answer(text, reply_markup=builder.as_markup())
-        return
-
     await message.answer(text)
 
 # ==================== AI REJIM ====================
@@ -715,7 +612,7 @@ async def post_cancel(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer("Bekor qilindi.")
     await callback.answer()
 
-# ----- Anime qo‘shish -----
+# ----- Anime qo‘shish (VIP va havola so‘ralmaydi) -----
 @router.message(F.text == "➕ Anime qo‘shish")
 async def add_anime_start(message: Message, state: FSMContext):
     if not await is_admin(message.from_user.id):
@@ -735,51 +632,46 @@ async def add_anime_name(message: Message, state: FSMContext):
 
 @router.message(AnimeAdd.code)
 async def add_anime_code(message: Message, state: FSMContext):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor.", reply_markup=admin_menu(await is_owner(message.from_user.id)))
+        return
     await state.update_data(code=message.text.upper())
     await state.set_state(AnimeAdd.genre)
     await message.answer("Janr(lar)ini yozing (vergul bilan):")
 
 @router.message(AnimeAdd.genre)
 async def add_anime_genre(message: Message, state: FSMContext):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor.", reply_markup=admin_menu(await is_owner(message.from_user.id)))
+        return
     await state.update_data(genre=message.text)
     await state.set_state(AnimeAdd.description)
     await message.answer("Qisqacha tavsif (yoki /skip):")
 
 @router.message(AnimeAdd.description)
 async def add_anime_desc(message: Message, state: FSMContext):
+    if message.text == "❌ Bekor qilish":
+        await state.clear()
+        await message.answer("Bekor.", reply_markup=admin_menu(await is_owner(message.from_user.id)))
+        return
+    
     desc = None if message.text == "/skip" else message.text
-    await state.update_data(description=desc)
-    await state.set_state(AnimeAdd.link)
-    await message.answer("Havola (ko‘rish/yuklab olish) yoki /skip:")
-
-@router.message(AnimeAdd.link)
-async def add_anime_link(message: Message, state: FSMContext):
-    link = None if message.text == "/skip" else message.text
-    await state.update_data(link=link)
-    await state.set_state(AnimeAdd.is_vip)
-    kb = InlineKeyboardBuilder()
-    kb.button(text="💎 VIP", callback_data="anime_vip_1")
-    kb.button(text="Ochiq", callback_data="anime_vip_0")
-    await message.answer("VIP anime mi?", reply_markup=kb.as_markup())
-
-@router.callback_query(AnimeAdd.is_vip, F.data.startswith("anime_vip_"))
-async def add_anime_finish(callback: CallbackQuery, state: FSMContext):
-    is_vip = int(callback.data.split("_")[-1])
     data = await state.get_data()
+    
     async with aiosqlite.connect(DB_PATH) as db:
         try:
             await db.execute(
-                """INSERT INTO animes (name, code, genre, description, link, is_vip, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (data["name"], data["code"], data["genre"], data.get("description"),
-                 data.get("link"), is_vip, datetime.now().isoformat())
+                """INSERT INTO animes (name, code, genre, description, created_at)
+                   VALUES (?, ?, ?, ?, ?)""",
+                (data["name"], data["code"], data["genre"], desc, datetime.now().isoformat())
             )
             await db.commit()
-            await callback.message.answer(f"✅ Anime qo‘shildi: <b>{data['name']}</b>")
+            await message.answer(f"✅ Anime muvaffaqiyatli qo‘shildi: <b>{data['name']}</b>", reply_markup=admin_menu(await is_owner(message.from_user.id)))
         except aiosqlite.IntegrityError:
-            await callback.message.answer("❌ Bu kod allaqachon mavjud!")
+            await message.answer("❌ Bu kod allaqachon mavjud!", reply_markup=admin_menu(await is_owner(message.from_user.id)))
     await state.clear()
-    await callback.answer()
 
 @router.message(F.text == "📋 Animelar ro‘yxati")
 async def list_animes(message: Message):
@@ -787,15 +679,14 @@ async def list_animes(message: Message):
         return
     async with aiosqlite.connect(DB_PATH) as db:
         db.row_factory = aiosqlite.Row
-        async with db.execute("SELECT id, name, code, is_vip, views FROM animes ORDER BY id DESC LIMIT 30") as cur:
+        async with db.execute("SELECT id, name, code, views FROM animes ORDER BY id DESC LIMIT 30") as cur:
             rows = await cur.fetchall()
     if not rows:
         await message.answer("Hali anime yo‘q.")
         return
     text = "<b>📋 Animelar:</b>\n\n"
     for r in rows:
-        vip = "💎" if r["is_vip"] else ""
-        text += f"{vip} <b>{r['name']}</b> [{r['code']}] — {r['views']} ko‘rish\n"
+        text += f"• <b>{r['name']}</b> [{r['code']}] — {r['views']} ko‘rish\n"
     await message.answer(text)
 
 # ==================== OWNER PANEL ====================
@@ -805,14 +696,18 @@ async def owner_panel(message: Message):
         return
     await message.answer("👑 <b>Owner panel</b>", reply_markup=owner_menu())
 
+class AdminManage(StatesGroup):
+    add_admin_id = State()
+    remove_admin_id = State()
+
 @router.message(F.text == "➕ Admin qo‘shish")
 async def add_admin_start(message: Message, state: FSMContext):
     if not await is_owner(message.from_user.id):
         return
-    await state.set_state(VIPManage.add_admin_id)
+    await state.set_state(AdminManage.add_admin_id)
     await message.answer("Yangi adminning Telegram ID sini yuboring:", reply_markup=cancel_kb())
 
-@router.message(VIPManage.add_admin_id)
+@router.message(AdminManage.add_admin_id)
 async def add_admin_process(message: Message, state: FSMContext):
     if message.text == "❌ Bekor qilish":
         await state.clear()
@@ -835,10 +730,10 @@ async def add_admin_process(message: Message, state: FSMContext):
 async def remove_admin_start(message: Message, state: FSMContext):
     if not await is_owner(message.from_user.id):
         return
-    await state.set_state(VIPManage.remove_admin_id)
+    await state.set_state(AdminManage.remove_admin_id)
     await message.answer("Olib tashlanadigan admin ID sini yuboring:", reply_markup=cancel_kb())
 
-@router.message(VIPManage.remove_admin_id)
+@router.message(AdminManage.remove_admin_id)
 async def remove_admin_process(message: Message, state: FSMContext):
     if message.text == "❌ Bekor qilish":
         await state.clear()
@@ -854,70 +749,6 @@ async def remove_admin_process(message: Message, state: FSMContext):
         await message.answer("❌ Faqat raqam kiriting!")
     await state.clear()
 
-@router.message(F.text == "💰 VIP narxini o‘zgartirish")
-async def set_price_start(message: Message, state: FSMContext):
-    if not await is_owner(message.from_user.id):
-        return
-    await state.set_state(VIPManage.set_price)
-    price = await get_vip_price()
-    await message.answer(f"Joriy narx: {price:,} so‘m\nYangi narxni yozing (faqat raqam):", reply_markup=cancel_kb())
-
-@router.message(VIPManage.set_price)
-async def set_price_process(message: Message, state: FSMContext):
-    if message.text == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=owner_menu())
-        return
-    try:
-        price = int(message.text.replace(" ", "").replace(",", ""))
-        await set_vip_price(price)
-        await message.answer(f"✅ VIP narxi {price:,} so‘m etib belgilandi!", reply_markup=owner_menu())
-        await state.clear()
-    except ValueError:
-        await message.answer("❌ Faqat raqam kiriting!")
-
-@router.message(F.text == "💎 VIP foydalanuvchi qo‘shish")
-async def add_vip_start(message: Message, state: FSMContext):
-    if not await is_owner(message.from_user.id):
-        return
-    await state.set_state(VIPManage.add_vip_id)
-    await message.answer("VIP bermoqchi bo‘lgan foydalanuvchi ID sini yuboring:", reply_markup=cancel_kb())
-
-@router.message(VIPManage.add_vip_id)
-async def add_vip_process(message: Message, state: FSMContext):
-    if message.text == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=owner_menu())
-        return
-    try:
-        uid = int(message.text.strip())
-        await set_vip(uid, days=30)
-        await message.answer(f"✅ ID {uid} ga 30 kunga VIP berildi!", reply_markup=owner_menu())
-    except ValueError:
-        await message.answer("❌ Faqat raqam kiriting!")
-    await state.clear()
-
-@router.message(F.text == "❌ VIP olib tashlash")
-async def remove_vip_start(message: Message, state: FSMContext):
-    if not await is_owner(message.from_user.id):
-        return
-    await state.set_state(VIPManage.remove_vip_id)
-    await message.answer("VIP holatini olib tashlamoqchi bo‘lgan foydalanuvchi ID sini yuboring:", reply_markup=cancel_kb())
-
-@router.message(VIPManage.remove_vip_id)
-async def remove_vip_process(message: Message, state: FSMContext):
-    if message.text == "❌ Bekor qilish":
-        await state.clear()
-        await message.answer("Bekor qilindi.", reply_markup=owner_menu())
-        return
-    try:
-        uid = int(message.text.strip())
-        await remove_vip(uid)
-        await message.answer(f"✅ ID {uid} dan VIP olib tashlandi!", reply_markup=owner_menu())
-    except ValueError:
-        await message.answer("❌ Faqat raqam kiriting!")
-    await state.clear()
-
 @router.message(F.text == "📊 Statistika")
 async def stats_process(message: Message):
     if not await is_owner(message.from_user.id):
@@ -925,8 +756,6 @@ async def stats_process(message: Message):
     async with aiosqlite.connect(DB_PATH) as db:
         async with db.execute("SELECT COUNT(*) FROM users") as cur:
             users_count = (await cur.fetchone())[0]
-        async with db.execute("SELECT COUNT(*) FROM users WHERE is_vip = 1") as cur:
-            vip_count = (await cur.fetchone())[0]
         async with db.execute("SELECT COUNT(*) FROM animes") as cur:
             anime_count = (await cur.fetchone())[0]
         async with db.execute("SELECT COUNT(*) FROM admins") as cur:
@@ -935,37 +764,16 @@ async def stats_process(message: Message):
     text = (
         f"<b>📊 Bot Statistikasi:</b>\n\n"
         f"👥 Foydalanuvchilar: {users_count} ta\n"
-        f"💎 VIP foydalanuvchilar: {vip_count} ta\n"
         f"🎬 Animelar bazasi: {anime_count} ta\n"
         f"🛠 Adminlar soni: {admin_count + 1} ta (Owner bilan)"
     )
     await message.answer(text, reply_markup=owner_menu())
 
-# ==================== WEBHOOK & MAIN (RENDER FIX) ====================
-async def web_server():
-    app = web.Application()
-    
-    async def handle(request):
-        return web.Response(text="Kage Dub Bot is running!")
-    
-    app.router.add_get("/", handle)
-    return app
-
+# ==================== MAIN ====================
 async def main():
     await init_db()
-    print("🚀 Kage Dub boti ishga tushmoqda...")
+    print("🚀 Kage Dub boti muvaffaqiyatli ishga tushdi!")
     await bot.delete_webhook(drop_pending_updates=True)
-    
-    # Render port talabini qondirish uchun aiohttp serverini ishga tushiramiz
-    app = await web_server()
-    runner = web.AppRunner(app)
-    await runner.setup()
-    
-    port = int(os.environ.get("PORT", 8080))
-    site = web.TCPSite(runner, "0.0.0.0", port)
-    await site.start()
-    print(f"🌐 Web server {port}-portda ishga tushdi va Render SIGTERM xatosining oldi olindi.")
-    
     await dp.start_polling(bot)
 
 if __name__ == "__main__":
